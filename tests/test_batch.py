@@ -49,9 +49,15 @@ class _FakeBatches:
         # default progress: scripted via _progress queue if set, otherwise
         # a single "ended" entry with all-succeeded counts.
         return _FakeBatch(
-            bid, "in_progress",
-            {"succeeded": 0, "errored": 0, "canceled": 0, "expired": 0,
-             "processing": len(requests)},
+            bid,
+            "in_progress",
+            {
+                "succeeded": 0,
+                "errored": 0,
+                "canceled": 0,
+                "expired": 0,
+                "processing": len(requests),
+            },
         )
 
     def script_progress(self, *batches: _FakeBatch):
@@ -67,9 +73,15 @@ class _FakeBatches:
             return b
         # Default: finished
         return _FakeBatch(
-            batch_id, "ended",
-            {"succeeded": 0, "errored": 0, "canceled": 0, "expired": 0,
-             "processing": 0},
+            batch_id,
+            "ended",
+            {
+                "succeeded": 0,
+                "errored": 0,
+                "canceled": 0,
+                "expired": 0,
+                "processing": 0,
+            },
         )
 
     def results(self, batch_id):
@@ -93,9 +105,18 @@ class _FakeClient:
 def test_submit_returns_batch_id_and_records_requests():
     client = _FakeClient()
     runner = BatchRunner(client)
-    bid = runner.submit([
-        {"custom_id": "a", "params": {"model": "claude-haiku-4-5", "max_tokens": 1, "messages": []}},
-    ])
+    bid = runner.submit(
+        [
+            {
+                "custom_id": "a",
+                "params": {
+                    "model": "claude-haiku-4-5",
+                    "max_tokens": 1,
+                    "messages": [],
+                },
+            },
+        ]
+    )
     assert bid == "batch_000"
     assert client.batches.created[0][0]["custom_id"] == "a"
 
@@ -103,9 +124,17 @@ def test_submit_returns_batch_id_and_records_requests():
 def test_progress_reports_request_counts():
     client = _FakeClient()
     client.batches.script_progress(
-        _FakeBatch("batch_000", "in_progress", {
-            "succeeded": 2, "errored": 1, "canceled": 0, "expired": 0, "processing": 7,
-        }),
+        _FakeBatch(
+            "batch_000",
+            "in_progress",
+            {
+                "succeeded": 2,
+                "errored": 1,
+                "canceled": 0,
+                "expired": 0,
+                "processing": 7,
+            },
+        ),
     )
     runner = BatchRunner(client)
     prog = runner.progress("batch_000")
@@ -119,10 +148,15 @@ def test_progress_reports_request_counts():
 def test_retrieve_collects_succeeded_and_errored():
     client = _FakeClient()
     msg_ok = _FakeMessage("claude-haiku-4-5", 100, 50)
-    client.batches.script_results("batch_X", [
-        _FakeResult("row-1", {"type": "succeeded", "message": msg_ok}),
-        _FakeResult("row-2", {"type": "errored", "error": {"type": "invalid_request_error"}}),
-    ])
+    client.batches.script_results(
+        "batch_X",
+        [
+            _FakeResult("row-1", {"type": "succeeded", "message": msg_ok}),
+            _FakeResult(
+                "row-2", {"type": "errored", "error": {"type": "invalid_request_error"}}
+            ),
+        ],
+    )
     runner = BatchRunner(client)
     result = runner.retrieve("batch_X")
     assert isinstance(result, BatchResult)
@@ -134,27 +168,50 @@ def test_retrieve_collects_succeeded_and_errored():
 
 def test_retrieve_cost_applies_batch_discount():
     client = _FakeClient()
-    # haiku: $0.80 / $4.00 per 1M, batch discount 0.5
-    # 1M in tokens => 0.40 USD; 1M out tokens => 2.00 USD; total 2.40
+    # haiku: $1.00 / $5.00 per 1M, batch discount 0.5
+    # 1M in tokens => 0.50 USD; 1M out tokens => 2.50 USD; total 3.00
     msg = _FakeMessage("claude-haiku-4-5", 1_000_000, 1_000_000)
-    client.batches.script_results("b", [
-        _FakeResult("r1", {"type": "succeeded", "message": msg}),
-    ])
+    client.batches.script_results(
+        "b",
+        [
+            _FakeResult("r1", {"type": "succeeded", "message": msg}),
+        ],
+    )
     runner = BatchRunner(client)
     result = runner.retrieve("b")
     assert result.cost_usd is not None
-    assert 2.39 <= result.cost_usd <= 2.41
+    assert 2.99 <= result.cost_usd <= 3.01
 
 
 def test_retrieve_cost_none_for_unknown_model():
     client = _FakeClient()
     msg = _FakeMessage("some-unknown", 100, 100)
-    client.batches.script_results("b", [
-        _FakeResult("r1", {"type": "succeeded", "message": msg}),
-    ])
+    client.batches.script_results(
+        "b",
+        [
+            _FakeResult("r1", {"type": "succeeded", "message": msg}),
+        ],
+    )
     runner = BatchRunner(client)
     result = runner.retrieve("b")
     assert result.cost_usd is None
+
+
+def test_retrieve_cost_opus_pricing():
+    client = _FakeClient()
+    # opus: $5.00 / $25.00 per 1M, batch discount 0.5
+    # 1M in tokens => 2.50 USD; 1M out tokens => 12.50 USD; total 15.00
+    msg = _FakeMessage("claude-opus-4-8", 1_000_000, 1_000_000)
+    client.batches.script_results(
+        "b",
+        [
+            _FakeResult("r1", {"type": "succeeded", "message": msg}),
+        ],
+    )
+    runner = BatchRunner(client)
+    result = runner.retrieve("b")
+    assert result.cost_usd is not None
+    assert 14.99 <= result.cost_usd <= 15.01
 
 
 # ---- run() end-to-end -----------------------------------------------------
@@ -163,18 +220,50 @@ def test_retrieve_cost_none_for_unknown_model():
 def test_run_submits_polls_until_ended_then_retrieves():
     client = _FakeClient()
     client.batches.script_progress(
-        _FakeBatch("x", "in_progress", {"succeeded": 0, "errored": 0, "canceled": 0, "expired": 0, "processing": 1}),
-        _FakeBatch("x", "ended", {"succeeded": 1, "errored": 0, "canceled": 0, "expired": 0, "processing": 0}),
+        _FakeBatch(
+            "x",
+            "in_progress",
+            {
+                "succeeded": 0,
+                "errored": 0,
+                "canceled": 0,
+                "expired": 0,
+                "processing": 1,
+            },
+        ),
+        _FakeBatch(
+            "x",
+            "ended",
+            {
+                "succeeded": 1,
+                "errored": 0,
+                "canceled": 0,
+                "expired": 0,
+                "processing": 0,
+            },
+        ),
     )
     msg = _FakeMessage("claude-haiku-4-5", 10, 5)
-    client.batches.script_results("batch_000", [
-        _FakeResult("row-1", {"type": "succeeded", "message": msg}),
-    ])
+    client.batches.script_results(
+        "batch_000",
+        [
+            _FakeResult("row-1", {"type": "succeeded", "message": msg}),
+        ],
+    )
 
     seen: list[BatchProgress] = []
     runner = BatchRunner(client)
     result = runner.run(
-        [{"custom_id": "row-1", "params": {"model": "claude-haiku-4-5", "max_tokens": 1, "messages": []}}],
+        [
+            {
+                "custom_id": "row-1",
+                "params": {
+                    "model": "claude-haiku-4-5",
+                    "max_tokens": 1,
+                    "messages": [],
+                },
+            }
+        ],
         poll_interval=0.0,
         on_progress=seen.append,
         _sleep=lambda _t: None,
@@ -187,14 +276,36 @@ def test_run_submits_polls_until_ended_then_retrieves():
 def test_run_times_out_if_never_ends():
     client = _FakeClient()
     client.batches.script_progress(
-        *[_FakeBatch("x", "in_progress", {"succeeded": 0, "errored": 0, "canceled": 0, "expired": 0, "processing": 1}) for _ in range(20)]
+        *[
+            _FakeBatch(
+                "x",
+                "in_progress",
+                {
+                    "succeeded": 0,
+                    "errored": 0,
+                    "canceled": 0,
+                    "expired": 0,
+                    "processing": 1,
+                },
+            )
+            for _ in range(20)
+        ]
     )
     runner = BatchRunner(client)
     fake_clock = iter([0.0, 0.0, 5.0, 11.0])
 
     with pytest.raises(BatchTimeoutError) as exc:
         runner.run(
-            [{"custom_id": "r", "params": {"model": "claude-haiku-4-5", "max_tokens": 1, "messages": []}}],
+            [
+                {
+                    "custom_id": "r",
+                    "params": {
+                        "model": "claude-haiku-4-5",
+                        "max_tokens": 1,
+                        "messages": [],
+                    },
+                }
+            ],
             poll_interval=0.0,
             timeout_s=10.0,
             _sleep=lambda _t: None,
@@ -222,11 +333,14 @@ def test_batch_discount_constant_is_half():
 def test_custom_discount_overrides():
     client = _FakeClient()
     msg = _FakeMessage("claude-haiku-4-5", 1_000_000, 0)
-    client.batches.script_results("b", [
-        _FakeResult("r", {"type": "succeeded", "message": msg}),
-    ])
+    client.batches.script_results(
+        "b",
+        [
+            _FakeResult("r", {"type": "succeeded", "message": msg}),
+        ],
+    )
     runner = BatchRunner(client, batch_discount=1.0)
     result = runner.retrieve("b")
-    # 1M in tokens at $0.80/M with no discount = $0.80
+    # 1M in tokens at $1.00/M with no discount = $1.00
     assert result.cost_usd is not None
-    assert 0.79 <= result.cost_usd <= 0.81
+    assert 0.99 <= result.cost_usd <= 1.01

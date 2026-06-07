@@ -58,10 +58,11 @@ PriceTable = dict[str, dict[str, float]]
 
 
 DEFAULT_PRICES: PriceTable = {
-    "claude-opus-4-7": {"input": 15.0, "output": 75.0},
-    "claude-opus-4-6": {"input": 15.0, "output": 75.0},
+    "claude-opus-4-8": {"input": 5.0, "output": 25.0},
+    "claude-opus-4-7": {"input": 5.0, "output": 25.0},
+    "claude-opus-4-6": {"input": 5.0, "output": 25.0},
     "claude-sonnet-4-6": {"input": 3.0, "output": 15.0},
-    "claude-haiku-4-5": {"input": 0.80, "output": 4.0},
+    "claude-haiku-4-5": {"input": 1.0, "output": 5.0},
 }
 
 BATCH_DISCOUNT = 0.50  # 50% off the synchronous rates
@@ -73,7 +74,7 @@ BATCH_DISCOUNT = 0.50  # 50% off the synchronous rates
 @dataclass(frozen=True)
 class BatchProgress:
     batch_id: str
-    status: str               # in_progress / canceling / ended
+    status: str  # in_progress / canceling / ended
     succeeded: int
     errored: int
     canceled: int
@@ -217,7 +218,9 @@ class BatchRunner:
             cost_usd=cost,
         )
 
-    def _estimate_cost(self, model: str | None, in_tok: int, out_tok: int) -> float | None:
+    def _estimate_cost(
+        self, model: str | None, in_tok: int, out_tok: int
+    ) -> float | None:
         if model is None:
             return None
         price = self._prices.get(model)
@@ -246,11 +249,9 @@ class BatchRunner:
         """
         batch_id = self.submit(requests)
         started = _now()
-        last_prog: BatchProgress | None = None
 
         while True:
             prog = self.progress(batch_id)
-            last_prog = prog
             if on_progress:
                 on_progress(prog)
             if prog.status == "ended":
